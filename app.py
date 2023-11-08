@@ -10,7 +10,7 @@ dotenv_path = join(dirname(__file__), '.env')
 load_dotenv(dotenv_path)
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
-DB_NAME =  os.environ.get("DB_NAME")
+DB_NAME = os.environ.get("DB_NAME")
 
 client = MongoClient(MONGODB_URI)
 
@@ -18,12 +18,24 @@ db = client[DB_NAME]
 
 app = Flask(__name__)
 
+
 @app.route('/')
 def main():
-    # This route should fetch all of 
-    # the words from the database and 
-    # pass them on to the HTML template
-    return render_template("index.html")
+    words_result = db.words.find({}, {'_id': False})
+    words = []
+    for word in words_result:
+        definition = word['definitions'][0]['shortdef']
+        definition = definition if type(definition) is str else definition[0]
+        words.append({
+            'word': word['word'],
+            'definition': definition,
+        })
+    msg = request.args.get('msg')
+    return render_template(
+        'index.html',
+        words=words,
+        msg=msg
+    )
 
 
 @app.route('/detail/<keyword>')
@@ -32,6 +44,18 @@ def detail(keyword):
     url = f'https://www.dictionaryapi.com/api/v3/references/collegiate/json/{keyword}?key={api_key}'
     response = requests.get(url)
     definitions = response.json()
+    if not definitions:
+        return redirect(url_for(
+            'error',
+            word=keyword
+        ))
+
+    if type(definitions[0]) is str:
+        return redirect(url_for(
+            'error',
+            word=keyword,
+            suggestions=','.join(definitions)
+        ))
     status = request.args.get('status_give', 'new')
     return render_template("detail.html", word=keyword, definitions=definitions, status=status)
 
@@ -61,6 +85,19 @@ def delete_word():
         'result': 'success',
         'msg': f'the word {word} was deleted'
     })
+
+
+@app.route('/error')
+def error():
+    word = request.args.get('word')
+    suggestions = request.args.get('suggestions')
+    if suggestions:
+        suggestions = suggestions.split(',')
+    return render_template(
+        'error.html',
+        word=word,
+        suggestions=suggestions
+    )
 
 
 if __name__ == '__main__':
